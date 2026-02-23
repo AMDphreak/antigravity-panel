@@ -2,6 +2,23 @@
 
 # 更新日志
  
+## [2.5.12] - 2026-02-23
+
+### 新增
+
+- **CDP Auto-Accept 回退方案**: 当命令 API 因 Webview 沙箱化不可用时，新增 Chrome DevTools Protocol (CDP) 注入作为自动接受功能的回退策略。命令 API 仍为主通道。
+- **Webview Guard**: CDP 脚本在执行前会验证 `.react-app-container` 是否存在，确保仅在 Antigravity Agent 面板中执行注入。
+
+### 修复
+
+- **Usage 图表溢出** (#99): 修复了使用历史图表柱状图突破容器边界的问题。高度计算现在基于实际最大值正确缩放，容器强制设置 `overflow: hidden`。
+- **CDP 端口标准化**: 将调试端口从范围扫描（8995–9005）改为 Chromium 标准端口 `9222`。
+
+### 改进
+
+- **Auto-Accept 安全性**: 收紧按钮匹配逻辑，增加 `.py` 文件噪声过滤和 `role="button"` 检测，简化事件冒泡为单层父元素。
+
+
 ## [2.5.11] - 2026-02-01
 
 ### 新增

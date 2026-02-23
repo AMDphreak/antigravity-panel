@@ -2,6 +2,23 @@ English | [中文文档](docs/CHANGELOG_zh.md)
 
 # Change Log
  
+## [2.5.12] - 2026-02-23
+
+### Added
+
+- **CDP Auto-Accept Fallback**: Added Chrome DevTools Protocol (CDP) injection as a fallback strategy for the auto-accept feature when the command API is unavailable due to webview sandboxing. The command API remains the primary channel.
+- **Webview Guard**: CDP scripts now validate the presence of `.react-app-container` before execution, ensuring injection only targets the Antigravity agent panel.
+
+### Fixed
+
+- **Usage Chart Overflow** (#99): Fixed usage history graph bars overflowing the container boundary. The height calculation now scales correctly against the actual max value, and the container enforces `overflow: hidden`.
+- **CDP Port Standardized**: Changed the debug port from a range scan (8995–9005) to the standard Chromium port `9222`.
+
+### Improved
+
+- **Auto-Accept Safety**: Tightened button matching logic with additional noise filters (`.py` files) and `role="button"` detection. Simplified event bubbling to a single parent level.
+
+
 ## [2.5.11] - 2026-02-01
 
 ### Added

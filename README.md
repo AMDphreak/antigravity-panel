@@ -74,15 +74,15 @@ English | [中文文档](docs/README_zh.md)
 - **Code Context**: Manage code analysis caches per project
 - **Smart Cleanup**: Automatically closes related editor tabs
 
-### 🤖 Auto-Accept (CDP Hands-free Mode)
+### 🤖 Auto-Accept (Hands-free Mode)
 
-**Streamline your workflow with Chromium DevTools Protocol bypass**
-- Automatically accepts Agent-suggested terminal commands and file edits.
-- Bypasses recent Antigravity Webview sandboxing by injecting clicks via the debug port.
-- Toggle on/off via the sidebar "Rocket" switch.
+**Streamline your workflow**
+- Automatically accepts Agent-suggested terminal commands and file edits
+- Dual strategy: command API (primary) + CDP injection (fallback for sandboxed webviews)
+- Toggle on/off via the sidebar "Rocket" switch
 
 > [!IMPORTANT]
-> **Setup Required:** For this feature to work, Antigravity must be launched with the `--remote-debugging-port=9000` flag. Lingering background processes will block this port.
+> **CDP Fallback Setup:** For the CDP fallback to work, Antigravity must be launched with `--remote-debugging-port=9222`. This is only needed when the command API is unavailable due to webview sandboxing.
 
 **Recommended Setup (Dedicated Launcher):**
 Create a script to cleanly kill background instances before launching.
@@ -91,14 +91,14 @@ Create a script to cleanly kill background instances before launching.
 ```bat
 @echo off
 taskkill /F /IM Antigravity.exe /T 2>nul
-start "" "D:\Develop\Antigravity\Antigravity.exe" --remote-debugging-port=9000
+start "" "D:\Develop\Antigravity\Antigravity.exe" --remote-debugging-port=9222
 ```
 
 **macOS/Linux (Save as `launch_antigravity.sh`):**
 ```bash
 #!/bin/bash
 pkill -f "Antigravity"
-/Applications/Antigravity.app/Contents/MacOS/Electron --remote-debugging-port=9000 &
+/Applications/Antigravity.app/Contents/MacOS/Electron --remote-debugging-port=9222 &
 ```
 
 ### ✨ Commit Message Generator (Claude)
@@ -291,6 +291,7 @@ Special thanks to our community contributors:
 *   [**@iskisraell**](https://github.com/iskisraell) - Windows platform stability fixes (v2.5.6).
 *   [**@simbaTmotsi**](https://github.com/simbaTmotsi) - Local LLM Commit Message Generator.
 *   [**@A-vrice**](https://github.com/A-vrice) - Japanese localization.
+*   [**@restinnotes**](https://github.com/restinnotes) - CDP Auto-Accept implementation.
 
 ## 🌐 Localization Policy
 

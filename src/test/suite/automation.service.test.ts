@@ -28,9 +28,7 @@ suite('AutomationService Test Suite', () => {
     });
 
     test('start() should enable service and start scheduler', () => {
-        // Expect scheduler start to be called with 'autoAccept'
         schedulerMock.expects('start').withExactArgs('autoAccept').once();
-        // Expect scheduler isRunning to be called and return true
         schedulerMock.expects('isRunning').withExactArgs('autoAccept').returns(true);
 
         service.start();
@@ -70,42 +68,48 @@ suite('AutomationService Test Suite', () => {
         schedulerMock.verify();
     });
 
-    test('task logic should execute commands when enabled', async () => {
-        // We need to extract the task callback to verify its logic
-        // This is a bit tricky with private access, but typical for unit testing internal logic
-        // Or we can rely on the fact that we test the public methods and Scheduler separately.
-        // However, to test that the *task* calls the commands, we can mock the scheduler's register method
-        // to capture the task.
-
+    test('task logic should call command API when enabled', async () => {
         const schedulerStub = sandbox.stub(Scheduler.prototype, 'register');
-        // Re-instantiate to use the stub
         service = new AutomationService();
 
-        // Get the registered task
         const taskArgs = schedulerStub.firstCall.args[0];
         assert.strictEqual(taskArgs.name, 'autoAccept');
 
-        // Enable it so the task logic proceeds
         service.start();
 
-        // Run the task manually
         await taskArgs.execute();
 
-        // Verify commands were called
+        // Primary strategy: command API should be called
         assert.ok(commandsStub.calledWith('antigravity.agent.acceptAgentStep'), 'Should call acceptAgentStep');
         assert.ok(commandsStub.calledWith('antigravity.terminal.accept'), 'Should call terminal.accept');
     });
 
-    test('task logic should NOT execute commands when disabled', async () => {
+    test('task logic should NOT execute when disabled', async () => {
         const schedulerStub = sandbox.stub(Scheduler.prototype, 'register');
         service = new AutomationService();
         const taskArgs = schedulerStub.firstCall.args[0];
 
-        // Ensure it's disabled
         assert.strictEqual(service.isRunning(), false);
 
         await taskArgs.execute();
 
         assert.ok(commandsStub.notCalled, 'Should not execute commands when disabled');
+    });
+
+    test('should use fixed CDP port 9222', () => {
+        // @ts-ignore: access private static for testing
+        assert.strictEqual(AutomationService['CDP_PORT'], 9222);
+    });
+
+    test('dispose() should clean up connections', () => {
+        // @ts-ignore: access private for testing
+        const connections = service['connections'];
+        const mockWs = { close: sandbox.stub() };
+        connections.set('test:1', mockWs as any);
+
+        service.dispose();
+
+        assert.ok(mockWs.close.calledOnce, 'Should close WebSocket connections');
+        assert.strictEqual(connections.size, 0, 'Should clear connections map');
     });
 });

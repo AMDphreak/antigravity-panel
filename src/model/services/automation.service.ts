@@ -6,8 +6,9 @@ import * as http from 'http';
 import WebSocket from 'ws';
 
 /**
- * AutomationService: Implements the CDP (Chrome DevTools Protocol) auto-accept feature
- * Bypasses UI sandboxing by connecting directly to the Chromium debugger.
+ * AutomationService: Dual-strategy auto-accept
+ * 1. Primary: VS Code command API (fast, lightweight)
+ * 2. Fallback: CDP injection for sandboxed webviews
  */
 export class AutomationService implements IAutomationService, vscode.Disposable {
     private scheduler: Scheduler;
@@ -17,8 +18,7 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
     // CDP State
     private msgId = 1;
     private connections = new Map<string, WebSocket>();
-    private readonly BASE_PORT = 9000;
-    private readonly PORT_RANGE = 5;
+    private static readonly CDP_PORT = 9222;
 
     constructor() {
         this.scheduler = new Scheduler({
@@ -29,9 +29,10 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
 
         this.scheduler.register({
             name: this.taskName,
-            interval: 800, // Safe default interval
+            interval: 800,
             execute: async () => {
                 if (!this._enabled) return;
+                await this.performCommandAccept();
                 await this.performCdpAutoAccept();
             },
             immediate: false
@@ -39,57 +40,82 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
     }
 
     /**
-     * Finds active webviews and evaluates the clicker script to bypass UI blocks
+     * Primary strategy: call Antigravity's native accept commands
+     */
+    private async performCommandAccept() {
+        try {
+            await vscode.commands.executeCommand('antigravity.agent.acceptAgentStep');
+        } catch { /* no pending step */ }
+
+        try {
+            await vscode.commands.executeCommand('antigravity.terminal.accept');
+        } catch { /* no pending command */ }
+    }
+
+    /**
+     * Fallback strategy: CDP injection for sandboxed agent panel
      */
     private async performCdpAutoAccept() {
-        for (let port = this.BASE_PORT - this.PORT_RANGE; port <= this.BASE_PORT + this.PORT_RANGE; port++) {
-            const pages = await this.getPages(port);
-            for (const page of pages) {
-                if (page.type !== 'page' && page.type !== 'webview') continue;
-                if ((page.title || "").includes("Extension Host")) continue;
+        const pages = await this.getPages(AutomationService.CDP_PORT);
+        for (const page of pages) {
+            if (page.type !== 'page' && page.type !== 'webview') continue;
+            if ((page.title || '').includes('Extension Host')) continue;
 
-                const id = `${port}:${page.id}`;
-                if (!this.connections.has(id)) {
-                    if (page.webSocketDebuggerUrl) {
-                        await this.connectToPage(id, page.webSocketDebuggerUrl);
-                    }
-                }
+            const id = `${AutomationService.CDP_PORT}:${page.id}`;
+            if (!this.connections.has(id) && page.webSocketDebuggerUrl) {
+                await this.connectToPage(id, page.webSocketDebuggerUrl);
+            }
 
-                const ws = this.connections.get(id);
-                if (ws && ws.readyState === WebSocket.OPEN as number) {
-                    await this.evaluate(ws, this.getClickerScript());
-                }
+            const ws = this.connections.get(id);
+            if (ws && ws.readyState === WebSocket.OPEN as number) {
+                await this.evaluate(ws, this.getClickerScript());
             }
         }
     }
 
     /**
-     * Native JS payload dropped straight into the webview execution context
+     * Injection script with Webview Guard — only runs inside the agent panel
      */
     private getClickerScript(): string {
         return `
             (() => {
+                // Webview Guard: only execute inside the Antigravity agent panel
+                if (!document.querySelector('.react-app-container')) return;
+
+                const TARGET_TOKENS = ['accept all', 'accept', 'confirm', 'run', 'always allow', 'allow once', 'allow'];
+                const EXPANDER_TOKENS = ['requires input', 'expand'];
+
                 const getAllRoots = (root = document) => {
                     let roots = [root];
                     try {
-                        const iframes = root.querySelectorAll('iframe, frame');
-                        for (const iframe of iframes) {
+                        for (const iframe of root.querySelectorAll('iframe, frame')) {
                             try {
                                 const doc = iframe.contentDocument || iframe.contentWindow?.document;
                                 if (doc) roots.push(...getAllRoots(doc));
                             } catch (e) { }
                         }
-                        const shadowHosts = root.querySelectorAll('*');
-                        for (const el of shadowHosts) {
+                        for (const el of root.querySelectorAll('*')) {
                             if (el.shadowRoot) roots.push(...getAllRoots(el.shadowRoot));
                         }
                     } catch (e) { }
                     return roots;
                 };
 
+                const clickElement = (el) => {
+                    try {
+                        el.click();
+                        const rect = el.getBoundingClientRect();
+                        const opts = { view: window, bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, buttons: 1 };
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.dispatchEvent(new MouseEvent('click', opts));
+                    } catch (e) { }
+                    // Bubble for React synthetic events
+                    let p = el.parentElement;
+                    if (p) { try { p.click(); } catch(e) {} }
+                };
+
                 const roots = getAllRoots();
-                const pageTitle = document.title || "";
-                const isReviewPage = pageTitle.includes("Review Changes");
 
                 roots.forEach(root => {
                     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null, false);
@@ -97,53 +123,46 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
                     while (el = walker.nextNode()) {
                         if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
 
-                        const rawText = (el.innerText || el.textContent || "").trim().toLowerCase();
+                        const rawText = (el.innerText || el.textContent || '').trim().toLowerCase();
                         if (!rawText) continue;
 
                         let isMatch = false;
                         let isExpander = false;
 
-                        // Identify target tokens (Auto Accept logic, Permissions, etc.)
-                        if (['accept all', 'accept', 'confirm', 'run', 'always allow', 'allow once', 'allow'].includes(rawText)) isMatch = true;
+                        if (TARGET_TOKENS.includes(rawText)) isMatch = true;
                         if (rawText.includes('always run') && rawText.length < 25) isMatch = true;
                         if (rawText.startsWith('run alt')) isMatch = true;
-                        
-                        // Dropdowns/Expanders requiring revelation before clicking
-                        if (rawText.includes('requires input') || rawText === 'expand') { isMatch = true; isExpander = true; }
-                        if (rawText.includes('.js') || rawText.includes('.ts')) isMatch = false; // Noise filtering
 
-                        if (isMatch) {
-                            if (el.dataset.cdpSniperClicked === 'true') continue;
-
-                            // Security constraints for chat panel clicking
-                            if (!isReviewPage && !isExpander) {
-                                let safe = false;
-                                if (el.tagName === 'BUTTON') safe = true;
-                                try {
-                                    const style = window.getComputedStyle(el);
-                                    if (style.cursor === 'pointer') safe = true;
-                                } catch(e) {}
-                                if (!safe) continue;
-                                if (el.closest('pre') || el.closest('code')) continue;
+                        for (const token of EXPANDER_TOKENS) {
+                            if (rawText === token || (token !== 'expand' && rawText.includes(token))) {
+                                isMatch = true;
+                                isExpander = true;
                             }
-
-                            // Mark as clicked
-                            el.dataset.cdpSniperClicked = 'true';
-                            if (isExpander) { setTimeout(() => { el.dataset.cdpSniperClicked = 'false'; }, 2000); }
-
-                            try {
-                                el.click(); 
-                                const rect = el.getBoundingClientRect();
-                                const opts = { view: window, bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, buttons: 1 };
-                                el.dispatchEvent(new MouseEvent('mousedown', opts));
-                                el.dispatchEvent(new MouseEvent('mouseup', opts));
-                                el.dispatchEvent(new MouseEvent('click', opts));
-                            } catch(e) {}
-
-                            // Robust parent triggering for React synthetic events
-                            let p = el.parentElement;
-                            if (p) { p.click(); if (p.parentElement) p.parentElement.click(); }
                         }
+
+                        // Noise filter: skip file names and code blocks
+                        if (rawText.includes('.js') || rawText.includes('.ts') || rawText.includes('.py')) isMatch = false;
+
+                        if (!isMatch) continue;
+                        if (el.dataset.autoAcceptClicked === 'true') continue;
+
+                        // Only click interactive elements (buttons or pointer-cursor elements)
+                        if (!isExpander) {
+                            let safe = false;
+                            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') safe = true;
+                            try {
+                                if (window.getComputedStyle(el).cursor === 'pointer') safe = true;
+                            } catch (e) {}
+                            if (!safe) continue;
+                            if (el.closest('pre') || el.closest('code')) continue;
+                        }
+
+                        el.dataset.autoAcceptClicked = 'true';
+                        if (isExpander) {
+                            setTimeout(() => { el.dataset.autoAcceptClicked = 'false'; }, 2000);
+                        }
+
+                        clickElement(el);
                     }
                 });
             })()
@@ -192,14 +211,14 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
         if (this._enabled) return;
         this._enabled = true;
         this.scheduler.start(this.taskName);
-        infoLog("Automation: Auto-accept connected via Chrome DevTools Protocol");
+        infoLog("Automation: Auto-accept enabled (command API + CDP fallback)");
     }
 
     stop(): void {
         if (!this._enabled) return;
         this._enabled = false;
         this.scheduler.stop(this.taskName);
-        infoLog("Automation: Auto-accept disconnected");
+        infoLog("Automation: Auto-accept disabled");
     }
 
     isRunning(): boolean {

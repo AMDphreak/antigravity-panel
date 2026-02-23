@@ -22,8 +22,8 @@ export class UsageChart extends LitElement {
     const { buckets, maxUsage, interval, prediction } = this.data;
     const t = (window as unknown as WindowWithVsCode).__TRANSLATIONS__;
 
-    // Cap effective max at 25% for better low-usage visibility
-    const effectiveMaxUsage = Math.min(maxUsage, 25);
+    // Use actual max for scaling so bars never exceed container
+    const effectiveMaxUsage = Math.max(maxUsage, 1);
 
     const timelineText = `Last ${this.data.displayMinutes} min · ${interval}s/bar`;
 
@@ -52,7 +52,7 @@ export class UsageChart extends LitElement {
         }
       }
 
-      const totalHeight = Math.max(3, currentHeight);
+      const totalHeight = Math.min(Math.max(3, currentHeight), maxHeight);
       const background = gradientStops.length > 0
         ? `linear-gradient(to top, ${gradientStops.join(', ')})`
         : 'rgba(255, 255, 255, 0.15)';
