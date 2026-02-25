@@ -6,6 +6,16 @@ import * as http from 'http';
 import WebSocket from 'ws';
 
 /**
+ * Chrome DevTools Protocol page/webview object from /json/list endpoint
+ */
+interface CdpPage {
+    type: string;
+    id: string;
+    title?: string;
+    webSocketDebuggerUrl?: string;
+}
+
+/**
  * AutomationService: Dual-strategy auto-accept
  * 1. Primary: VS Code command API (fast, lightweight)
  * 2. Fallback: CDP injection for sandboxed webviews
@@ -169,7 +179,7 @@ export class AutomationService implements IAutomationService, vscode.Disposable 
         `;
     }
 
-    private async getPages(port: number): Promise<any[]> {
+    private async getPages(port: number): Promise<CdpPage[]> {
         return new Promise((resolve) => {
             const req = http.get({ hostname: '127.0.0.1', port, path: '/json/list', timeout: 500 }, (res) => {
                 let body = '';
