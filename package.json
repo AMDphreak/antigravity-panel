@@ -436,7 +436,7 @@
     "glob": "^13.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "mocha": "^11.7.5",
+    "mocha": "^11.3.0",
     "sinon": "^21.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.1"
