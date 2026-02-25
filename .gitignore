@@ -28,3 +28,9 @@ Thumbs.db
 
 # Backup files
 *.bak
+
+# Test data files (PII concerns)
+response_*.json
+*-test.json
+RAW-SERVER-TEST.json
+docs/RAW-SERVER-TEST.json
